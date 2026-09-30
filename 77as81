@@ -6,8 +6,7 @@ task.spawn(function()
     local UIS = game:GetService("UserInputService")
     local VIM = game:GetService("VirtualInputManager")
 
-    -- Đợi ClemonRC load
-    task.wait(1)
+    task.wait(0.5)
 
     if playerGui:FindFirstChild("SimpleCButton") then
         playerGui.SimpleCButton:Destroy()
@@ -18,7 +17,6 @@ task.spawn(function()
     screenGui.ResetOnSpawn = false
     screenGui.IgnoreGuiInset = true
     screenGui.DisplayOrder = 999
-    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.Parent = playerGui
 
     local button = Instance.new("TextButton")
@@ -41,35 +39,20 @@ task.spawn(function()
     stroke.Color = Color3.fromRGB(45, 100, 255)
 
     local originalPos = button.Position
-    local clickCount = 0
-    local clickToken = 0
-    local DOUBLE_WINDOW = 0.55 -- dễ ấn hơn
-    local busy = false
 
     local function setPressed(on)
         if on then
             button.BackgroundColor3 = Color3.fromRGB(0, 100, 220)
             button.TextColor3 = Color3.fromRGB(255, 255, 100)
+            button.Position = originalPos + UDim2.new(0, 0, 0, 3)
         else
             button.BackgroundColor3 = Color3.fromRGB(13, 98, 90)
             button.TextColor3 = Color3.fromRGB(255, 255, 255)
-            button.Text = "O"
             button.Position = originalPos
         end
     end
 
     local function sendC()
-        -- Cách 1: VirtualInputManager
-        pcall(function()
-            VIM:SendKeyEvent(true, Enum.KeyCode.C, false, game)
-        end)
-        task.wait(0.06)
-        pcall(function()
-            VIM:SendKeyEvent(false, Enum.KeyCode.C, false, game)
-        end)
-
-        -- Cách 2: gửi thêm lần nữa cho chắc (một số executor hay nuốt 1 lần)
-        task.wait(0.03)
         pcall(function()
             VIM:SendKeyEvent(true, Enum.KeyCode.C, false, game)
         end)
@@ -79,40 +62,13 @@ task.spawn(function()
         end)
     end
 
-    local function doToggle()
-        if busy then return end
-        busy = true
-        setPressed(true)
-        button.Text = "OK"
-        pcall(sendC)
-        task.delay(0.2, function()
-            setPressed(false)
-            busy = false
-            clickCount = 0
-        end)
-    end
-
-    -- Double-tap (dùng Activated = ổn định mobile + PC)
+    -- Ấn 1 lần là đổi
     button.Activated:Connect(function()
-        if busy then return end
-
-        clickCount += 1
-        clickToken += 1
-        local myToken = clickToken
-
-        if clickCount == 1 then
-            button.Text = "1/2"
-            button.BackgroundColor3 = Color3.fromRGB(180, 120, 30)
-            task.delay(DOUBLE_WINDOW, function()
-                if myToken == clickToken and clickCount < 2 then
-                    clickCount = 0
-                    setPressed(false)
-                end
-            end)
-        elseif clickCount >= 2 then
-            clickCount = 0
-            doToggle()
-        end
+        setPressed(true)
+        pcall(sendC)
+        task.delay(0.12, function()
+            setPressed(false)
+        end)
     end)
 
     -- Kéo nút
@@ -146,7 +102,6 @@ task.spawn(function()
         end
     end)
 
-    -- Phím C thật → highlight
     UIS.InputBegan:Connect(function(input, gp)
         if gp then return end
         if input.KeyCode == Enum.KeyCode.C then
@@ -159,15 +114,11 @@ task.spawn(function()
         end
     end)
 
-    -- Reset → 0.5s tự gửi C
+    -- Reset → 0.5s tự kích hoạt
     local function onCharacter(char)
         task.wait(0.5)
         if not char or not char.Parent then return end
-        -- đợi thêm chút cho ClemonRC gắn model
-        task.wait(0.3)
-        if not char or not char.Parent then return end
         pcall(sendC)
-        print("✅ Auto kích hoạt sau reset")
     end
 
     if player.Character then
@@ -175,5 +126,5 @@ task.spawn(function()
     end
     player.CharacterAdded:Connect(onCharacter)
 
-    print("✅ Nút O sẵn sàng | Ấn 2 lần (hiện 1/2 rồi OK)")
+    print("✅ ClemonRC | Nút nhỏ | Ấn 1 lần | Auto 0.5s sau reset")
 end)
