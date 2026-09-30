@@ -1,6 +1,13 @@
-loadstring(game:HttpGet("https://raw.githubusercontent.com/clemonlang/clemon_roclothes/refs/heads/main/ClemonRC.lua"))() -- Your original script
-loadstring([[ 
-    local player = game.Players.LocalPlayer
+-- ClemonRC + Nút O (Double-tap, Auto re-enable, Freeze 10s FIX)
+loadstring(game:HttpGet("https://raw.githubusercontent.com/clemonlang/clemon_roclothes/refs/heads/main/ClemonRC.lua"))()
+
+task.spawn(function()
+    local Players = game:GetService("Players")
+    local UIS = game:GetService("UserInputService")
+    local VIM = game:GetService("VirtualInputManager")
+    local RunService = game:GetService("RunService")
+
+    local player = Players.LocalPlayer
     local playerGui = player:WaitForChild("PlayerGui")
 
     if playerGui:FindFirstChild("SimpleCButton") then
@@ -16,60 +23,197 @@ loadstring([[
 
     local button = Instance.new("TextButton")
     button.Name = "OButton"
-    button.Size = UDim2.new(0, 58, 0, 58)
+    button.Size = UDim2.new(0, 48, 0, 48)
     button.Position = UDim2.new(0.9, 0, 0.8, 0)
     button.BackgroundColor3 = Color3.fromRGB(13, 98, 90)
     button.Text = "O"
-    button.TextColor3 = Color3.fromRGB(333, 333, 333)
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
     button.TextScaled = true
     button.Font = Enum.Font.GothamBold
     button.BorderSizePixel = 0
     button.Active = true
     button.Parent = screenGui
 
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 12)
-    corner.Parent = button
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Thickness = 3
+    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 12)
+    local stroke = Instance.new("UIStroke", button)
+    stroke.Thickness = 2
     stroke.Color = Color3.fromRGB(45, 100, 255)
-    stroke.Parent = button
-
-    local UserInputService = game:GetService("UserInputService")
-    local VirtualInputManager = game:GetService("VirtualInputManager")
 
     local originalPos = button.Position
+    local lastClick = 0
+    local DOUBLE_WINDOW = 0.35
+    local isBusy = false
+
+    -- Freeze state
+    local freezeToken = 0
+    local savedSpeed, savedJump = 16, 50
+    local freezeConn = nil
 
     local function setPressed(pressed)
+        if isBusy and not pressed then return end
         if pressed then
             button.BackgroundColor3 = Color3.fromRGB(0, 100, 220)
             button.TextColor3 = Color3.fromRGB(255, 255, 100)
-            button.Position = originalPos + UDim2.new(0, 0, 0, 4)
+            button.Position = originalPos + UDim2.new(0, 0, 0, 3)
         else
-            button.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+            button.BackgroundColor3 = Color3.fromRGB(13, 98, 90)
             button.TextColor3 = Color3.fromRGB(255, 255, 255)
             button.Position = originalPos
         end
     end
 
-    -- Click to type C
-    button.MouseButton1Down:Connect(function()
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
-        setPressed(true)
-    end)
+    local function unfreeze(token)
+        -- Chỉ unfreeze đúng phiên hiện tại
+        if token and token \~= freezeToken then return end
 
-    button.MouseButton1Up:Connect(function()
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+        if freezeConn then
+            freezeConn:Disconnect()
+            freezeConn = nil
+        end
+
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+        if hrp then
+            hrp.Anchored = false
+            pcall(function()
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end)
+        end
+
+        if hum and hum.Health > 0 then
+            hum.PlatformStand = false
+            hum.AutoRotate = true
+            hum.WalkSpeed = savedSpeed > 0 and savedSpeed or 16
+            if hum.UseJumpPower then
+                hum.JumpPower = savedJump > 0 and savedJump or 50
+            else
+                hum.JumpHeight = 7.2
+            end
+        end
+
+        button.Text = "O"
+        isBusy = false
         setPressed(false)
+    end
+
+    local function freezeCharacter(seconds)
+        freezeToken += 1
+        local myToken = freezeToken
+
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum then
+            isBusy = false
+            return
+        end
+
+        -- Lưu tốc độ gốc
+        savedSpeed = hum.WalkSpeed
+        if savedSpeed < 1 then savedSpeed = 16 end
+        if hum.UseJumpPower then
+            savedJump = hum.JumpPower
+            if savedJump < 1 then savedJump = 50 end
+        end
+
+        -- Đứng im: chỉ khóa di chuyển, KHÔNG neo vĩnh viễn kiểu hỏng
+        hum.WalkSpeed = 0
+        if hum.UseJumpPower then
+            hum.JumpPower = 0
+        else
+            hum.JumpHeight = 0
+        end
+        hum.PlatformStand = false
+        hum.AutoRotate = false
+        hrp.Anchored = true
+
+        local endTime = tick() + seconds
+        button.BackgroundColor3 = Color3.fromRGB(120, 60, 20)
+        button.Text = tostring(seconds)
+
+        if freezeConn then
+            freezeConn:Disconnect()
+            freezeConn = nil
+        end
+
+        freezeConn = RunService.Heartbeat:Connect(function()
+            if myToken \~= freezeToken then
+                if freezeConn then freezeConn:Disconnect() freezeConn = nil end
+                return
+            end
+
+            local left = endTime - tick()
+            local c = player.Character
+            local h = c and c:FindFirstChild("HumanoidRootPart")
+            local hu = c and c:FindFirstChildOfClass("Humanoid")
+
+            -- Nhân vật mất / chết → mở khóa
+            if not c or not h or not hu or hu.Health <= 0 then
+                unfreeze(myToken)
+                return
+            end
+
+            if left <= 0 then
+                unfreeze(myToken)
+                return
+            end
+
+            button.Text = tostring(math.ceil(left))
+            -- Giữ đứng im mỗi frame (phòng script khác sửa WalkSpeed)
+            hu.WalkSpeed = 0
+            if hu.UseJumpPower then hu.JumpPower = 0 else hu.JumpHeight = 0 end
+            if not h.Anchored then h.Anchored = true end
+            pcall(function()
+                h.AssemblyLinearVelocity = Vector3.zero
+                h.AssemblyAngularVelocity = Vector3.zero
+            end)
+        end)
+
+        -- Backup timer (phòng Heartbeat lỗi)
+        task.delay(seconds + 0.1, function()
+            if myToken == freezeToken then
+                unfreeze(myToken)
+            end
+        end)
+    end
+
+    local function sendCKey()
+        VIM:SendKeyEvent(true, Enum.KeyCode.C, false, game)
+        task.wait(0.05)
+        VIM:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+    end
+
+    local function doToggle()
+        if isBusy then return end
+        isBusy = true
+        setPressed(true)
+        pcall(sendCKey)
+        freezeCharacter(10)
+    end
+
+    button.MouseButton1Click:Connect(function()
+        if isBusy then return end
+        local now = tick()
+        if now - lastClick <= DOUBLE_WINDOW then
+            lastClick = 0
+            doToggle()
+        else
+            lastClick = now
+            setPressed(true)
+            task.delay(0.15, function()
+                if not isBusy then setPressed(false) end
+            end)
+        end
     end)
 
-    -- Draggable
-    local dragging = false
-    local dragStart, startPos
-
+    -- Kéo nút
+    local dragging, dragStart, startPos
     button.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startPos = button.Position
@@ -77,33 +221,45 @@ loadstring([[
         end
     end)
 
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            button.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    UIS.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch) then
+            local d = input.Position - dragStart
+            button.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
             originalPos = button.Position
         end
     end)
 
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
         end
     end)
 
-    -- Real C key also highlights
-    UserInputService.InputBegan:Connect(function(input, gp)
-        if gp then return end
-        if input.KeyCode == Enum.KeyCode.C then
-            setPressed(true)
-        end
-    end)
+    -- Reset nhân vật: mở khóa + tự gửi C lại
+    local function onCharacter(char)
+        freezeToken += 1 -- hủy freeze cũ
+        unfreeze(nil)
 
-    UserInputService.InputEnded:Connect(function(input)
-        if input.KeyCode == Enum.KeyCode.C then
-            setPressed(false)
-        end
-    end)
+        task.wait(1.2)
+        if not char or not char.Parent then return end
 
-    print("✅ Draggable C Button loaded with ClemonRC")
-]])()
+        pcall(function()
+            VIM:SendKeyEvent(true, Enum.KeyCode.C, false, game)
+            task.wait(0.05)
+            VIM:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+        end)
+
+        button.Text = "O"
+        isBusy = false
+        setPressed(false)
+    end
+
+    if player.Character then
+        task.spawn(onCharacter, player.Character)
+    end
+    player.CharacterAdded:Connect(onCharacter)
+
+    print("✅ ClemonRC fixed freeze 10s | Double-tap O | Auto on reset")
+end)
